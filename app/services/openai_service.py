@@ -1,97 +1,114 @@
-from openai import OpenAI
-import shelve
-from dotenv import load_dotenv
+"""
+openai_service.py
+-----------------
+Exports `generate_response()` for the WhatsApp bot but uses the *public*
+OpenAI API (gpt\u20113.5\u2011turbo, gpt\u20114\u2011turbo, etc.) through the official `openai`
+package (\u22651.0).
+
+Environment variables
+---------------------
+OPENAI_API_KEY        \u2013 required
+OPENAI_MODEL_NAME     \u2013 required (e.g. gpt-3.5-turbo, gpt-4o-mini, ...)
+OPENAI_API_BASE       \u2013 optional, override if using a proxy / mirror
+"""
+
+from __future__ import annotations
+
 import os
-import time
-import logging
+from collections import defaultdict
+from typing import Dict, List
+
+from dotenv import load_dotenv
+from openai import OpenAI
 
 load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
-client = OpenAI(api_key=OPENAI_API_KEY)
 
+# \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+#   Client initialisation
+# \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+_api_key = os.getenv("OPENAI_API_KEY")
+_model_name = os.getenv("OPENAI_MODEL_NAME")  # e.g. gpt-3.5-turbo
+_api_base = os.getenv("OPENAI_API_BASE")  # optional
 
-def upload_file(path):
-    # Upload a file with an "assistants" purpose
-    file = client.files.create(
-        file=open("../../data/airbnb-faq.pdf", "rb"), purpose="assistants"
+if not (_api_key and _model_name):
+    raise RuntimeError(
+        "OPENAI_API_KEY and OPENAI_MODEL_NAME environment variables must be set."
     )
 
+# Construct the client (base_url only if provided)
+_client = OpenAI(
+    api_key=_api_key,
+    base_url=_api_base or None,  # keeps default if unset
+)
 
-def create_assistant(file):
+# \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+#   Per\u2011contact conversation buffers
+# \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+_CONV_HISTORY: Dict[str, List[Dict[str, str]]] = defaultdict(list)
+_MAX_TURNS = 12  # keep roughly the last 12 user/assistant pairs
+
+
+def _append_to_history(wa_id: str, role: str, content: str) -> None:
+    """Add a message to history and discard the oldest if buffer too big."""
+    _CONV_HISTORY[wa_id].append({"role": role, "content": content})
+    excess = len(_CONV_HISTORY[wa_id]) - _MAX_TURNS * 2
+    if excess > 0:
+        _CONV_HISTORY[wa_id] = _CONV_HISTORY[wa_id][excess:]
+
+
+# \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+#   Public API
+# \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+def generate_response(
+    message_body: str,
+    wa_id: str,
+    name: str,
+    system_message: str | None = None,
+) -> str:
     """
-    You currently cannot set the temperature for Assistant via the API.
+    Generate an assistant reply for the WhatsApp user identified by *wa_id*.
     """
-    assistant = client.beta.assistants.create(
-        name="WhatsApp AirBnb Assistant",
-        instructions="You're a helpful WhatsApp assistant that can assist guests that are staying in our Paris AirBnb. Use your knowledge base to best respond to customer queries. If you don't know the answer, say simply that you cannot help with question and advice to contact the host directly. Be friendly and funny.",
-        tools=[{"type": "retrieval"}],
-        model="gpt-4-1106-preview",
-        file_ids=[file.id],
-    )
-    return assistant
+    # 1) decide / update system prompt
+    if system_message is None:
+        system_message = (
+            "You are a helpful, concise assistant chatting on WhatsApp with "
+            f"{name}. Keep answers short and conversational."
+        )
 
+    if not _CONV_HISTORY[wa_id]:
+        _CONV_HISTORY[wa_id].append({"role": "system", "content": system_message})
+    elif _CONV_HISTORY[wa_id][0]["role"] == "system":
+        _CONV_HISTORY[wa_id][0]["content"] = system_message
 
-# Use context manager to ensure the shelf file is closed properly
-def check_if_thread_exists(wa_id):
-    with shelve.open("threads_db") as threads_shelf:
-        return threads_shelf.get(wa_id, None)
+    # 2) add user message
+    _append_to_history(wa_id, "user", message_body)
 
-
-def store_thread(wa_id, thread_id):
-    with shelve.open("threads_db", writeback=True) as threads_shelf:
-        threads_shelf[wa_id] = thread_id
-
-
-def run_assistant(thread, name):
-    # Retrieve the Assistant
-    assistant = client.beta.assistants.retrieve(OPENAI_ASSISTANT_ID)
-
-    # Run the assistant
-    run = client.beta.threads.runs.create(
-        thread_id=thread.id,
-        assistant_id=assistant.id,
-        # instructions=f"You are having a conversation with {name}",
+    # 3) call OpenAI
+    response = _client.chat.completions.create(
+        model=_model_name,
+        messages=_CONV_HISTORY[wa_id],
+        temperature=0.7,
+        max_tokens=512,
     )
 
-    # Wait for completion
-    # https://platform.openai.com/docs/assistants/how-it-works/runs-and-run-steps#:~:text=under%20failed_at.-,Polling%20for%20updates,-In%20order%20to
-    while run.status != "completed":
-        # Be nice to the API
-        time.sleep(0.5)
-        run = client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
+    assistant_text = response.choices[0].message.content.strip()
 
-    # Retrieve the Messages
-    messages = client.beta.threads.messages.list(thread_id=thread.id)
-    new_message = messages.data[0].content[0].text.value
-    logging.info(f"Generated message: {new_message}")
-    return new_message
+    # 4) save assistant reply
+    _append_to_history(wa_id, "assistant", assistant_text)
+
+    return assistant_text
 
 
-def generate_response(message_body, wa_id, name):
-    # Check if there is already a thread_id for the wa_id
-    thread_id = check_if_thread_exists(wa_id)
+# -----------------------------------------------------------------
+# Optional embeddings helper (parity with earlier version)
+# -----------------------------------------------------------------
+_embedding_model = os.getenv("OPENAI_EMBEDDING_MODEL_NAME", "text-embedding-3-small")
 
-    # If a thread doesn't exist, create one and store it
-    if thread_id is None:
-        logging.info(f"Creating new thread for {name} with wa_id {wa_id}")
-        thread = client.beta.threads.create()
-        store_thread(wa_id, thread.id)
-        thread_id = thread.id
 
-    # Otherwise, retrieve the existing thread
-    else:
-        logging.info(f"Retrieving existing thread for {name} with wa_id {wa_id}")
-        thread = client.beta.threads.retrieve(thread_id)
-
-    # Add message to thread
-    message = client.beta.threads.messages.create(
-        thread_id=thread_id,
-        role="user",
-        content=message_body,
-    )
-
-    # Run the assistant and get the new message
-    new_message = run_assistant(thread, name)
-
-    return new_message
+def embed(text: str) -> List[float]:
+    """
+    Return an embedding vector for *text*. Not used by WhatsApp bot but
+    provided for completeness.
+    """
+    resp = _client.embeddings.create(model=_embedding_model, input=[text])
+    return resp.data[0].embedding
