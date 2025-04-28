@@ -1,10 +1,11 @@
-import logging
-from flask import current_app, jsonify
 import json
+import logging
+import re
+
 import requests
+from flask import current_app, jsonify
 
 from app.services.azure_openai_service import generate_response
-import re
 
 
 def log_http_response(response):
