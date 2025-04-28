@@ -84,10 +84,15 @@ def process_whatsapp_message(body):
     message_body = message["text"]["body"]
 
     # TODO: implement custom function here
-    #response = generate_response(message_body)
+    # response = generate_response(message_body)
 
     # OpenAI Integration
-    response = generate_response(message_body, wa_id, name, system_message="You are Xue Feng's girlfriend")
+    response = generate_response(
+        message_body,
+        wa_id,
+        name,
+        system_message="You are a helpful but concise tech support for elderlies in Singapore",
+    )
     response = process_text_for_whatsapp(response)
 
     data = get_text_message_input("+" + wa_id, response)
