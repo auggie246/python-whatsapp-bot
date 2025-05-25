@@ -14,6 +14,7 @@ def load_configurations(app):
     app.config["VERSION"] = os.getenv("VERSION")
     app.config["PHONE_NUMBER_ID"] = os.getenv("PHONE_NUMBER_ID")
     app.config["VERIFY_TOKEN"] = os.getenv("VERIFY_TOKEN")
+    app.config["OPENAI_SERVICE_PROVIDER"] = os.getenv("LLM_PROVIDER", "openai")
 
 
 def configure_logging():
