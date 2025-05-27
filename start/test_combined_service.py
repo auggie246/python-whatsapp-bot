@@ -16,37 +16,33 @@
 # 1. LLM_PROVIDER:
 #    - Set to "openai" for standard OpenAI API.
 #    - Set to "azure" for Azure OpenAI Service.
+#    This variable determines which set of credentials and model names below are used.
 #
-# 2. If LLM_PROVIDER="openai":
+# 2. If LLM_PROVIDER="openai" (or it's unset, defaulting to "openai"):
 #    - OPENAI_API_KEY: Your OpenAI API key.
 #    - OPENAI_MODEL_NAME: The model to use (e.g., "gpt-3.5-turbo").
 #    - (Optional) OPENAI_EMBEDDING_MODEL_NAME: (e.g., "text-embedding-3-small")
 #
 # 3. If LLM_PROVIDER="azure":
-#    - AZURE_OPENAI_ENDPOINT: Your Azure OpenAI endpoint (e.g., "https://<your-resource-name>.openai.azure.com/").
+#    - AZURE_OPENAI_ENDPOINT: Your Azure OpenAI endpoint.
 #    - AZURE_OPENAI_API_KEY: Your Azure OpenAI API key.
 #    - AZURE_OPENAI_DEPLOYMENT_NAME: Your Azure deployment name for chat models.
-#    - (Optional) AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME: Your Azure deployment name for embedding models.
-#      If not set, it will try to use the chat deployment name for embeddings.
+#    - (Optional) AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME: For embedding models.
 #    - (Optional) AZURE_OPENAI_API_VERSION: (e.g., "2023-07-01-preview")
 #
 # Note: Actual API calls will only succeed if valid credentials for the selected
-# provider are available and correctly configured. This script does not mock API calls.
+# provider (determined by LLM_PROVIDER) are available as environment variables and correctly configured.
+# This script does not mock API calls.
 
 import os
-from flask import Flask, current_app
+from flask import Flask, current_app # current_app is needed for app.config
 from dotenv import load_dotenv
-
-# Assuming the script is run from the project root or `start/` directory,
-# adjust path if necessary to find app.config and app.services
 import sys
 
 # Ensure the app directory is in the Python path
-# This is a common way to handle running scripts in subdirectories
-# that need to import modules from sibling directories (like 'app')
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from app.config import load_configurations
+from app.config import load_configurations # Removed get_yaml_config
 from app.services.combined_openai_service import (
     initialize_openai_client,
     generate_response,
@@ -76,14 +72,16 @@ def main():
     # Push an application context
     with app.app_context():
         try:
-            # Initialize the OpenAI client
-            # This needs to be called within an app context because it uses current_app
+            # Initialize the OpenAI client. This function now reads LLM_PROVIDER from
+            # app.config, which was set by load_configurations(app)
             initialize_openai_client()
-            print("OpenAI client initialized successfully.")
+            print("OpenAI client initialization process completed.")
 
-            # Retrieve the configured provider
-            provider = current_app.config.get("OPENAI_SERVICE_PROVIDER")
-            print(f"--- Testing with provider: {provider} ---")
+            # Retrieve the configured provider from app.config to display it
+            # OPENAI_SERVICE_PROVIDER is set in app.config by load_configurations based on LLM_PROVIDER env var
+            provider = current_app.config.get("OPENAI_SERVICE_PROVIDER", "openai")
+            print(f"--- Testing with provider (from LLM_PROVIDER via app.config): {provider} ---")
+            # Removed try-except block for get_yaml_config as it's no longer used
 
             # --- Demonstrate generate_response ---
             print("\n--- Testing generate_response ---")
@@ -121,7 +119,7 @@ def main():
         except RuntimeError as e:
             print(f"Error during client initialization or context setup: {e}")
             print("Please ensure that your .env file is correctly set up in the project root,")
-            print("or that all required environment variables are exported in your session.")
+            print("or that all required environment variables (including LLM_PROVIDER) are exported in your session.")
             print("Refer to the comments at the top of this script for required variables.")
         except Exception as e:
             print(f"An critical unexpected error occurred: {e}")

@@ -1,8 +1,12 @@
 import sys
 import os
+# import yaml # Removed import
 from dotenv import load_dotenv
 import logging
 
+# PROJECT_ROOT removed as it was only for get_yaml_config
+
+# get_yaml_config function removed
 
 def load_configurations(app):
     load_dotenv()
@@ -14,6 +18,7 @@ def load_configurations(app):
     app.config["VERSION"] = os.getenv("VERSION")
     app.config["PHONE_NUMBER_ID"] = os.getenv("PHONE_NUMBER_ID")
     app.config["VERIFY_TOKEN"] = os.getenv("VERIFY_TOKEN")
+    # Restored OPENAI_SERVICE_PROVIDER loading from environment variable
     app.config["OPENAI_SERVICE_PROVIDER"] = os.getenv("LLM_PROVIDER", "openai")
 
 

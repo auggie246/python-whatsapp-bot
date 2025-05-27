@@ -4,7 +4,9 @@ from typing import List, Dict
 
 from openai import AzureOpenAI, OpenAI
 from dotenv import load_dotenv
-from flask import current_app
+from flask import current_app # Still needed for logger and context for decorator
+from app.decorators.service_decorators import select_service_impl
+# Removed: from app.config import get_yaml_config
 
 # Load environment variables from .env file
 load_dotenv()
@@ -25,10 +27,12 @@ def initialize_openai_client():
     """
     global _client, _chat_model_name, _embedding_model_name
 
-    if not current_app:
+    if not current_app: # current_app is essential for app.config and logger
         raise RuntimeError("Flask app context is required to initialize OpenAI client.")
 
+    # Get provider from current_app.config (loaded from environment variables)
     provider = current_app.config.get("OPENAI_SERVICE_PROVIDER", "openai")
+    # Removed try-except block for get_yaml_config
 
     if provider == "azure":
         azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -78,32 +82,8 @@ def _append_to_history(wa_id: str, role: str, content: str):
     user_history.append({"role": role, "content": content})
 
 
-def select_service_impl(required_provider_type: str):
-    """
-    Decorator factory to ensure that a function is called only if the
-    application is configured for the specified provider type and the client is initialized.
-    """
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            if not current_app:
-                raise RuntimeError("Flask app context is required.")
-            
-            configured_provider = current_app.config.get("OPENAI_SERVICE_PROVIDER", "openai")
-            
-            if configured_provider != required_provider_type:
-                raise RuntimeError(
-                    f"Service is configured for '{configured_provider}', "
-                    f"but an implementation for '{required_provider_type}' was called."
-                )
-            
-            if _client is None:
-                current_app.logger.error("OpenAI client not initialized. Call initialize_openai_client() first.")
-                raise RuntimeError("OpenAI client not initialized. Call initialize_openai_client() first.")
-            
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
-
+# Original select_service_impl decorator has been moved to app.decorators.service_decorators
+# and is now imported.
 
 @select_service_impl("azure")
 def _generate_response_azure(message_body: str, wa_id: str, name: str, system_message: str | None = None) -> str:
@@ -153,9 +133,13 @@ def generate_response(message_body: str, wa_id: str, name: str, system_message: 
     """
     Generates a chat response using the configured OpenAI service.
     """
-    if not current_app:
-        raise RuntimeError("Flask app context is required.")
+    # current_app check is important for app.config
+    if not current_app: 
+        raise RuntimeError("Flask app context is required for generate_response.")
+
+    # Get provider from current_app.config
     provider = current_app.config.get("OPENAI_SERVICE_PROVIDER", "openai")
+    # Removed try-except block for get_yaml_config
 
     if _client is None: # Ensure client is initialized if not already
         current_app.logger.warning("OpenAI client was not initialized prior to generate_response call. Initializing now.")
@@ -196,9 +180,12 @@ def embed(text: str) -> List[float]:
     """
     Generates an embedding for the given text using the configured OpenAI service.
     """
-    if not current_app:
-        raise RuntimeError("Flask app context is required.")
+    if not current_app: # current_app check for app.config
+        raise RuntimeError("Flask app context is required for embed.")
+
+    # Get provider from current_app.config
     provider = current_app.config.get("OPENAI_SERVICE_PROVIDER", "openai")
+    # Removed try-except block for get_yaml_config
 
     if _client is None: # Ensure client is initialized if not already
         current_app.logger.warning("OpenAI client was not initialized prior to embed call. Initializing now.")
