@@ -26,8 +26,13 @@ Key Environment Variables:
 from __future__ import annotations
 
 import os
+import base64
+import logging
+import requests
 from collections import defaultdict
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Any
+
+from flask import current_app
 
 from openai import OpenAI, AzureOpenAI # Import both
 from app.decorators.service_decorators import require_env_vars
@@ -161,10 +166,10 @@ _client, _chat_model_or_deployment_id, _embedding_model_or_deployment_id = _init
 # ----------------------------------------------------------------------
 #   In-memory conversation buffer (common logic)
 # ----------------------------------------------------------------------
-_CONV_HISTORY: Dict[str, List[Dict[str, str]]] = defaultdict(list)
+_CONV_HISTORY: Dict[str, List[Dict[str, Union[str, List[Dict[str, Any]]]]]] = defaultdict(list)
 _MAX_TURNS = 12  # keep roughly the last 12 user/assistant pairs
 
-def _append_to_history(wa_id: str, role: str, content: str) -> None:
+def _append_to_history(wa_id: str, role: str, content: Union[str, List[Dict[str, Any]]]) -> None:
     """Appends a message to the conversation history for a user.
 
     Also ensures the history does not exceed a maximum number of turns,
@@ -230,6 +235,159 @@ def generate_response(
     assistant_text = response.choices[0].message.content.strip()
 
     # 4) save assistant reply
+    _append_to_history(wa_id, "assistant", assistant_text)
+\
+    return assistant_text
+
+# ----------------------------------------------------------------------
+#   Media Handling Helper Functions
+# ----------------------------------------------------------------------
+def _get_media_info(media_id: str) -> dict | None:
+    \"\"\"Retrieves media item's URL and MIME type using its ID.
+
+    Args:
+        media_id (str): The ID of the media item.
+
+    Returns:
+        dict | None: A dictionary with "url" and "mime_type" if successful,
+                     None otherwise.
+    \"\"\"
+    url = f"https://graph.facebook.com/{media_id}"
+    headers = {"Authorization": f"Bearer {current_app.config['ACCESS_TOKEN']}"}
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        if "url" in data and "mime_type" in data:
+            # The 'id' in the response is the same as the input media_id
+            return {"url": data["url"], "mime_type": data["mime_type"], "id": data.get("id")}
+        else:
+            logging.error(f"Missing 'url' or 'mime_type' in media info response for ID {media_id}: {data}")
+            return None
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Failed to retrieve media info for ID {media_id}: {e}")
+        return None
+    except ValueError as e: # Includes JSONDecodeError
+        logging.error(f"Failed to decode JSON response for media info ID {media_id}: {e}")
+        return None
+
+def _download_media_content(media_download_url: str) -> bytes | None:
+    \"\"\"Downloads the media content from the given URL.
+
+    Args:
+        media_download_url (str): The URL to download the media from.
+
+    Returns:
+        bytes | None: The media content as bytes if successful, None otherwise.
+    \"\"\"
+    headers = {"Authorization": f"Bearer {current_app.config['ACCESS_TOKEN']}"}
+    try:
+        response = requests.get(media_download_url, headers=headers, timeout=30) # Increased timeout for download
+        response.raise_for_status()
+        return response.content
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Failed to download media from URL {media_download_url}: {e}")
+        return None
+
+# ----------------------------------------------------------------------
+#   Public API for Image Messages
+# ----------------------------------------------------------------------
+def generate_image_response(
+    image_id: str,
+    caption: str | None,
+    wa_id: str,
+    name: str,
+    system_message: str | None = None,
+) -> str:
+    \"\"\"Generates an assistant reply for an image message, including the image.
+
+    Retrieves the image using the Meta Media API, sends it to the LLM
+    (if vision-capable) along with the caption, and manages conversation history.
+
+    Args:
+        image_id (str): The ID of the received image.
+        caption (str | None): The caption accompanying the image, if any.
+        wa_id (str): The WhatsApp ID of the user.
+        name (str): The name of the user.
+        system_message (str | None, optional): An optional system message
+            to guide the assistant. Defaults to an image-aware prompt.
+
+    Returns:
+        str: The generated assistant's response, or an error message.
+    \"\"\"
+    media_info = _get_media_info(image_id)
+    if not media_info:
+        logging.error(f"Failed to get media info for image_id: {image_id}")
+        return "I'm sorry, I couldn't retrieve information about the image you sent."
+
+    download_url = media_info.get("url")
+    mime_type = media_info.get("mime_type")
+
+    if not download_url or not mime_type:
+        logging.error(f"Media info for {image_id} is incomplete: URL or MIME type missing.")
+        return "I'm sorry, there was an issue getting the details for your image."
+
+    image_bytes = _download_media_content(download_url)
+    if not image_bytes:
+        logging.error(f"Failed to download image content for image_id: {image_id} from {download_url}")
+        return "I'm sorry, I couldn't download the image you sent."
+
+    base64_image = base64.b64encode(image_bytes).decode('utf-8')
+    data_url = f"data:{mime_type};base64,{base64_image}"
+
+    # 1) Prepare user message content for multimodal input
+    user_message_parts = []
+    text_prompt_content = f"Image received from {name}."
+    if caption:
+        text_prompt_content += f" The caption is: '{caption}'."
+    else:
+        text_prompt_content += " There was no caption."
+    
+    user_message_parts.append({"type": "text", "text": text_prompt_content})
+    user_message_parts.append({"type": "image_url", "image_url": {"url": data_url}})
+
+    # 2) Decide / update system prompt
+    if system_message is None:
+        system_message = (
+            f"You are a helpful, concise assistant chatting on WhatsApp with {name}. "
+            "The user has sent an image. Describe it briefly if you can, "
+            "and respond to their caption or the image context. "
+            "If you cannot process or describe the image, acknowledge it gracefully."
+        )
+
+    if not _CONV_HISTORY[wa_id] or _CONV_HISTORY[wa_id][0][\"role\"] != \"system\":
+        _CONV_HISTORY[wa_id].insert(0, {\"role\": \"system\", \"content\": system_message})
+    else: # Update system message if different
+        _CONV_HISTORY[wa_id][0][\"content\"] = system_message
+    
+    # Truncate history before adding new user message to ensure system prompt isn't pushed out
+    # (This logic is from _append_to_history, adapted slightly for direct insertion after system prompt)
+    # We account for the system message + the new user message + MAX_TURNS * 2 for user/assistant pairs
+    while len(_CONV_HISTORY[wa_id]) >= 1 + 1 + _MAX_TURNS * 2: 
+        if len(_CONV_HISTORY[wa_id]) > 1: # Keep system prompt
+            _CONV_HISTORY[wa_id].pop(1) 
+        else: # Should not happen if system prompt is always there
+            break
+            
+    # Add the complex user message (text + image)
+    _CONV_HISTORY[wa_id].append({\"role\": \"user\", \"content\": user_message_parts})
+
+
+    # 3) Call the configured Chat API
+    try:
+        response = _client.chat.completions.create(
+            model=_chat_model_or_deployment_id,
+            messages=_CONV_HISTORY[wa_id], # type: ignore
+            temperature=0.7,
+            max_tokens=512,
+        )
+        assistant_text = response.choices[0].message.content.strip() if response.choices[0].message.content else "I received the image, but I don't have anything specific to add."
+    except Exception as e:
+        logging.error(f"Error calling LLM for image response (wa_id: {wa_id}): {e}")
+        assistant_text = "I encountered an issue trying to process that. Please try again."
+
+
+    # 4) Save assistant reply (ensure content is a simple string)
     _append_to_history(wa_id, "assistant", assistant_text)
 
     return assistant_text

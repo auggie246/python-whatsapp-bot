@@ -5,7 +5,7 @@ import re
 import requests
 from flask import current_app, jsonify
 
-from app.services.openai_service import generate_response
+from app.services.openai_service import generate_response, generate_image_response
 
 
 def log_http_response(response):
@@ -101,15 +101,20 @@ def process_whatsapp_message(body):
         case "image":
             image_id = message_object["image"]["id"]
             caption = message_object["image"].get("caption")
-            log_message = f"Received image from {name} ({wa_id}), image_id: {image_id}"
+            log_message = f"Processing image message from {name} ({wa_id}), image_id: {image_id}"
             if caption:
                 log_message += f" with caption: '{caption}'"
             logging.info(log_message)
-            
-            response_text = "I've received your image."
-            if caption:
-                response_text += f" You said: \"{caption}\". "
-            response_text += " I can't analyze images yet, but thanks for sending it!"
+
+            llm_response = generate_image_response(
+                image_id=image_id,
+                caption=caption,
+                wa_id=wa_id,
+                name=name,
+                # Optionally, pass a specific system_message for image contexts
+                # system_message="You are assisting with an image."
+            )
+            response_text = process_text_for_whatsapp(llm_response)
         case _:
             logging.warning(
                 f"Received unsupported message type '{message_type}' from {name} ({wa_id})."
