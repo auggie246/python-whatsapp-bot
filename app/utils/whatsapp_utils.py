@@ -99,9 +99,9 @@ def process_whatsapp_message(body):
             )
             response_text = process_text_for_whatsapp(llm_response)
         case "image":
-            media_id = message_object["image"]["id"]
+            image_id = message_object["image"]["id"]
             caption = message_object["image"].get("caption")
-            log_message = f"Received image from {name} ({wa_id}), media_id: {media_id}"
+            log_message = f"Received image from {name} ({wa_id}), image_id: {image_id}"
             if caption:
                 log_message += f" with caption: '{caption}'"
             logging.info(log_message)
