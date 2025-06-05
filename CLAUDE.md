@@ -140,9 +140,10 @@ The application follows the Flask Factory Pattern.
 
 - **`app/__init__.py`**: Initializes the Flask app using the `create_app` factory function. This allows for creating multiple instances of the app (e.g., for testing).
 - **`app/config.py`**: Manages configurations and settings for the Flask application. Environment-specific variables and secrets are loaded and accessed here.
-- **`app/decorators/`**: Contains Python decorators.
+- **`app/decorators/`**: Contains Python decorators. This directory is a package.
     - `security.py`: Houses security-related decorators, such as `signature_required` for validating incoming WhatsApp webhook requests.
-- **`app/services/`**: Contains services that interact with external APIs.
+    - `service_decorators.py`: Provides general-purpose decorators for services, such as `require_env_vars` for ensuring necessary environment variables are set.
+- **`app/services/`**: Contains services that interact with external APIs. This directory is a package.
     - `openai_service.py`: Handles integration with a configurable chat API provider (e.g., public OpenAI, Azure OpenAI) for generating AI responses. Behavior is controlled by the `CHAT_API_PROVIDER` environment variable.
     - `azure_openai_service.py`: (This file has been consolidated into `openai_service.py` and is now redundant).
 - **`app/utils/`**: Utility functions and helpers.
