@@ -5,7 +5,7 @@ import re
 import requests
 from flask import current_app, jsonify
 
-from app.services.azure_openai_service import generate_response
+from app.services.openai_service import generate_response, generate_image_response
 
 
 def log_http_response(response):
@@ -78,26 +78,58 @@ def process_text_for_whatsapp(text):
 
 
 def process_whatsapp_message(body):
-    wa_id = body["entry"][0]["changes"][0]["value"]["contacts"][0]["wa_id"]
-    name = body["entry"][0]["changes"][0]["value"]["contacts"][0]["profile"]["name"]
+    value = body["entry"][0]["changes"][0]["value"]
+    wa_id = value["contacts"][0]["wa_id"]
+    name = value["contacts"][0]["profile"]["name"]
+    message_object = value["messages"][0]
+    message_type = message_object["type"]
 
-    message = body["entry"][0]["changes"][0]["value"]["messages"][0]
-    message_body = message["text"]["body"]
+    response_text = ""  # Initialize response_text
 
-    # TODO: implement custom function here
-    # response = generate_response(message_body)
+    match message_type:
+        case "text":
+            message_body = message_object["text"]["body"]
+            logging.info(f"Processing text message from {name} ({wa_id}): '{message_body}'")
+            # OpenAI Integration
+            llm_response = generate_response(
+                message_body,
+                wa_id,
+                name,
+                system_message="You are a helpful but concise tech support for elderlies in Singapore",
+            )
+            response_text = process_text_for_whatsapp(llm_response)
+        case "image":
+            image_id = message_object["image"]["id"]
+            caption = message_object["image"].get("caption")
+            log_message = f"Processing image message from {name} ({wa_id}), image_id: {image_id}"
+            if caption:
+                log_message += f" with caption: '{caption}'"
+            logging.info(log_message)
 
-    # OpenAI Integration
-    response = generate_response(
-        message_body,
-        wa_id,
-        name,
-        system_message="You are a helpful but concise tech support for elderlies in Singapore",
-    )
-    response = process_text_for_whatsapp(response)
+            llm_response = generate_image_response(
+                image_id=image_id,
+                caption=caption,
+                wa_id=wa_id,
+                name=name,
+                # Optionally, pass a specific system_message for image contexts
+                # system_message="You are assisting with an image."
+            )
+            response_text = process_text_for_whatsapp(llm_response)
+        case _:
+            logging.warning(
+                f"Received unsupported message type '{message_type}' from {name} ({wa_id})."
+            )
+            response_text = (
+                "Sorry, I can only process text messages and acknowledge images at the moment."
+            )
 
-    data = get_text_message_input("+" + wa_id, response)
-    send_message(data)
+    if response_text:
+        data = get_text_message_input("+" + wa_id, response_text)
+        send_message(data)
+    else:
+        logging.error(
+            f"No response_text generated for message type '{message_type}' from {wa_id}"
+        )
 
 
 def is_valid_whatsapp_message(body):
