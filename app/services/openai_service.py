@@ -29,11 +29,8 @@ import os
 from collections import defaultdict
 from typing import Dict, List, Union
 
-from dotenv import load_dotenv
 from openai import OpenAI, AzureOpenAI # Import both
 from app.decorators.service_decorators import require_env_vars
-
-load_dotenv()
 
 # ----------------------------------------------------------------------
 #   Client Initialization (conditional based on provider)
