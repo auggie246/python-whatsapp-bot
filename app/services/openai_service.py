@@ -35,6 +35,7 @@ from typing import Dict, List, Union
 
 from dotenv import load_dotenv
 from openai import OpenAI, AzureOpenAI # Import both
+import functools
 
 load_dotenv()
 
@@ -45,67 +46,103 @@ _client: Union[OpenAI, AzureOpenAI] # Type hint for the client object
 _chat_model_or_deployment_id: str
 _embedding_model_or_deployment_id: str
 
-CHAT_API_PROVIDER = os.getenv("CHAT_API_PROVIDER", "OPENAI").upper()
+def require_env_vars(provider_name: str, required_vars: List[str]):
+    """Decorator to check for required environment variables for a given provider."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            missing_vars = [var for var in required_vars if not os.getenv(var)]
+            if missing_vars:
+                raise RuntimeError(
+                    f"For CHAT_API_PROVIDER='{provider_name}', the following environment "
+                    f"variables must be set: {', '.join(missing_vars)}"
+                )
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
-if CHAT_API_PROVIDER == "AZURE":
-    _endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "").rstrip("/")
-    _api_key = os.getenv("AZURE_OPENAI_API_KEY")
-    _api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
-    _chat_deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
-
-    if not (_endpoint and _api_key and _chat_deployment_name):
-        raise RuntimeError(
-            "For CHAT_API_PROVIDER='AZURE', AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, and "
-            "AZURE_OPENAI_DEPLOYMENT_NAME must be set."
-        )
-
-    _client = AzureOpenAI(
-        api_key=_api_key,
-        api_version=_api_version,
-        azure_endpoint=_endpoint,
+@require_env_vars(provider_name="AZURE", required_vars=[
+    "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_DEPLOYMENT_NAME"
+])
+def _get_azure_config():
+    """Retrieve Azure OpenAI specific configurations."""
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "").rstrip("/")
+    api_key = os.getenv("AZURE_OPENAI_API_KEY")
+    api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
+    chat_deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+    embedding_deployment_name = os.getenv(
+        "AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME", chat_deployment_name
     )
-    _chat_model_or_deployment_id = _chat_deployment_name
-    _embedding_model_or_deployment_id = os.getenv(
-        "AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME", _chat_deployment_name # Fallback to chat deployment
-    )
-elif CHAT_API_PROVIDER == "OPENAI":
-    _api_key = os.getenv("OPENAI_API_KEY")
-    _model_name = os.getenv("OPENAI_MODEL_NAME")
-    _api_base = os.getenv("OPENAI_API_BASE") # optional
+    return {
+        "client_config": {
+            "api_key": api_key,
+            "api_version": api_version,
+            "azure_endpoint": endpoint,
+        },
+        "client_class": AzureOpenAI,
+        "chat_model_id": chat_deployment_name,
+        "embedding_model_id": embedding_deployment_name,
+    }
 
-    if not (_api_key and _model_name):
-        raise RuntimeError(
-            "For CHAT_API_PROVIDER='OPENAI', OPENAI_API_KEY and OPENAI_MODEL_NAME "
-            "environment variables must be set."
-        )
+@require_env_vars(provider_name="OPENAI", required_vars=["OPENAI_API_KEY", "OPENAI_MODEL_NAME"])
+def _get_openai_config():
+    """Retrieve OpenAI specific configurations."""
+    api_key = os.getenv("OPENAI_API_KEY")
+    model_name = os.getenv("OPENAI_MODEL_NAME")
+    api_base = os.getenv("OPENAI_API_BASE") # optional
+    embedding_model_name = os.getenv("OPENAI_EMBEDDING_MODEL_NAME", "text-embedding-3-small")
+    return {
+        "client_config": {
+            "api_key": api_key,
+            "base_url": api_base or None,
+        },
+        "client_class": OpenAI,
+        "chat_model_id": model_name,
+        "embedding_model_id": embedding_model_name,
+    }
 
-    _client = OpenAI(
-        api_key=_api_key,
-        base_url=_api_base or None, # keeps default if unset
-    )
-    _chat_model_or_deployment_id = _model_name
-    _embedding_model_or_deployment_id = os.getenv(
-        "OPENAI_EMBEDDING_MODEL_NAME", "text-embedding-3-small"
-    )
 # Example for a future VLLM provider (illustrative)
-# elif CHAT_API_PROVIDER == "VLLM":
-# _api_base = os.getenv("VLLM_API_BASE") # e.g., http://localhost:8000/v1
-# _model_name = os.getenv("VLLM_MODEL_NAME") # e.g., mistralai/Mistral-7B-Instruct-v0.1
-# if not (_api_base and _model_name):
-# raise RuntimeError(
-#             "For CHAT_API_PROVIDER='VLLM', VLLM_API_BASE and VLLM_MODEL_NAME must be set."
-# )
-# _client = OpenAI(
-# api_key="DUMMY_KEY_IF_NOT_NEEDED", # VLLM might not need a key
-# base_url=_api_base,
-# )
-# _chat_model_or_deployment_id = _model_name
-#     _embedding_model_or_deployment_id = os.getenv("VLLM_EMBEDDING_MODEL_NAME", _model_name)
-else:
-    raise ValueError(
-        f"Invalid CHAT_API_PROVIDER: '{CHAT_API_PROVIDER}'. "
-        "Supported values are 'OPENAI' or 'AZURE'." # Update if VLLM is added
-    )
+# @require_env_vars(provider_name="VLLM", required_vars=["VLLM_API_BASE", "VLLM_MODEL_NAME"])
+# def _get_vllm_config():
+#     """Retrieve VLLM specific configurations."""
+#     api_base = os.getenv("VLLM_API_BASE")
+#     model_name = os.getenv("VLLM_MODEL_NAME")
+#     embedding_model_name = os.getenv("VLLM_EMBEDDING_MODEL_NAME", model_name)
+#     return {
+#         "client_config": {
+#             "api_key": "DUMMY_KEY_IF_NOT_NEEDED",
+#             "base_url": api_base,
+#         },
+#         "client_class": OpenAI, # Assuming VLLM uses OpenAI-compatible API
+#         "chat_model_id": model_name,
+#         "embedding_model_id": embedding_model_name,
+#     }
+
+def _initialize_client_and_models():
+    """Initializes and returns the API client and model/deployment IDs based on CHAT_API_PROVIDER."""
+    provider = os.getenv("CHAT_API_PROVIDER", "OPENAI").upper()
+    config = None
+
+    if provider == "AZURE":
+        config = _get_azure_config()
+    elif provider == "OPENAI":
+        config = _get_openai_config()
+    # elif provider == "VLLM":
+    #     config = _get_vllm_config()
+    else:
+        raise ValueError(
+            f"Invalid CHAT_API_PROVIDER: '{provider}'. "
+            "Supported values are 'OPENAI' or 'AZURE'." # Update if VLLM is added
+        )
+
+    client_class = config["client_class"]
+    client = client_class(**config["client_config"])
+    chat_model_id = config["chat_model_id"]
+    embedding_model_id = config["embedding_model_id"]
+
+    return client, chat_model_id, embedding_model_id
+
+_client, _chat_model_or_deployment_id, _embedding_model_or_deployment_id = _initialize_client_and_models()
 
 # ----------------------------------------------------------------------
 #   In-memory conversation buffer (common logic)
