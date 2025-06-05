@@ -5,10 +5,10 @@ to user messages by interacting with an LLM provider, a prompt builder,
 and a WhatsApp adapter.
 """
 import logging
-from typing import Dict, Any, Optional, List # Added Optional and List
+from typing import Dict, Any, Optional, List
 
+from .providers.llm_provider import LLMProvider 
 # Placeholder for future imports when other classes are created:
-# from .providers.llm_provider import LLMProvider 
 # from .prompt_builder.whatsapp_prompt_builder import WhatsAppPromptBuilder
 # from .adapters.whatsapp_adapter import WhatsAppAdapter
 
@@ -20,14 +20,13 @@ class ChatAssistant:
     def __init__(self):
         """Initializes the assistant.
         
-        Dependencies like LLMProvider, PromptBuilder, and WhatsAppAdapter
+        Dependencies like PromptBuilder and WhatsAppAdapter
         will be initialized here in future steps.
         """
-        # Stubbed dependencies - will be replaced with actual instances later
-        self.llm_provider = None  # Example: LLMProvider()
+        self.llm_provider = LLMProvider()
         self.prompt_builder = None # Example: WhatsAppPromptBuilder()
         self.whatsapp_adapter = None # Example: WhatsAppAdapter()
-        logger.info("ChatAssistant initialized (dependencies are currently stubbed).")
+        logger.info("ChatAssistant initialized with LLMProvider. Other dependencies are stubbed.")
 
     def handle_text_message(
         self, 
