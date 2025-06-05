@@ -236,14 +236,13 @@ def generate_response(
 
     # 4) save assistant reply
     _append_to_history(wa_id, "assistant", assistant_text)
-\
     return assistant_text
 
 # ----------------------------------------------------------------------
 #   Media Handling Helper Functions
 # ----------------------------------------------------------------------
 def _get_media_info(media_id: str) -> dict | None:
-    \"\"\"Retrieves media item's URL and MIME type using its ID.
+    """Retrieves media item's URL and MIME type using its ID.
 
     Args:
         media_id (str): The ID of the media item.
@@ -251,7 +250,7 @@ def _get_media_info(media_id: str) -> dict | None:
     Returns:
         dict | None: A dictionary with "url" and "mime_type" if successful,
                      None otherwise.
-    \"\"\"
+    """
     url = f"https://graph.facebook.com/{media_id}"
     headers = {"Authorization": f"Bearer {current_app.config['ACCESS_TOKEN']}"}
     try:
@@ -272,14 +271,14 @@ def _get_media_info(media_id: str) -> dict | None:
         return None
 
 def _download_media_content(media_download_url: str) -> bytes | None:
-    \"\"\"Downloads the media content from the given URL.
+    """Downloads the media content from the given URL.
 
     Args:
         media_download_url (str): The URL to download the media from.
 
     Returns:
         bytes | None: The media content as bytes if successful, None otherwise.
-    \"\"\"
+    """
     headers = {"Authorization": f"Bearer {current_app.config['ACCESS_TOKEN']}"}
     try:
         response = requests.get(media_download_url, headers=headers, timeout=30) # Increased timeout for download
@@ -299,7 +298,7 @@ def generate_image_response(
     name: str,
     system_message: str | None = None,
 ) -> str:
-    \"\"\"Generates an assistant reply for an image message, including the image.
+    """Generates an assistant reply for an image message, including the image.
 
     Retrieves the image using the Meta Media API, sends it to the LLM
     (if vision-capable) along with the caption, and manages conversation history.
@@ -314,7 +313,7 @@ def generate_image_response(
 
     Returns:
         str: The generated assistant's response, or an error message.
-    \"\"\"
+    """
     media_info = _get_media_info(image_id)
     if not media_info:
         logging.error(f"Failed to get media info for image_id: {image_id}")
@@ -355,10 +354,10 @@ def generate_image_response(
             "If you cannot process or describe the image, acknowledge it gracefully."
         )
 
-    if not _CONV_HISTORY[wa_id] or _CONV_HISTORY[wa_id][0][\"role\"] != \"system\":
-        _CONV_HISTORY[wa_id].insert(0, {\"role\": \"system\", \"content\": system_message})
+    if not _CONV_HISTORY[wa_id] or _CONV_HISTORY[wa_id][0]["role"] != "system":
+        _CONV_HISTORY[wa_id].insert(0, {"role": "system", "content": system_message})
     else: # Update system message if different
-        _CONV_HISTORY[wa_id][0][\"content\"] = system_message
+        _CONV_HISTORY[wa_id][0]["content"] = system_message
     
     # Truncate history before adding new user message to ensure system prompt isn't pushed out
     # (This logic is from _append_to_history, adapted slightly for direct insertion after system prompt)
@@ -370,7 +369,7 @@ def generate_image_response(
             break
             
     # Add the complex user message (text + image)
-    _CONV_HISTORY[wa_id].append({\"role\": \"user\", \"content\": user_message_parts})
+    _CONV_HISTORY[wa_id].append({"role": "user", "content": user_message_parts})
 
 
     # 3) Call the configured Chat API
