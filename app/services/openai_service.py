@@ -35,7 +35,7 @@ from typing import Dict, List, Union
 
 from dotenv import load_dotenv
 from openai import OpenAI, AzureOpenAI # Import both
-from ..decorators.service_decorators import require_env_vars
+from app.decorators.service_decorators import require_env_vars
 
 load_dotenv()
 
@@ -107,19 +107,18 @@ def _get_openai_config():
 def _initialize_client_and_models():
     """Initializes and returns the API client and model/deployment IDs based on CHAT_API_PROVIDER."""
     provider = os.getenv("CHAT_API_PROVIDER", "OPENAI").upper()
-    config = None
-
-    if provider == "AZURE":
-        config = _get_azure_config()
-    elif provider == "OPENAI":
-        config = _get_openai_config()
-    # elif provider == "VLLM":
-    #     config = _get_vllm_config()
-    else:
-        raise ValueError(
-            f"Invalid CHAT_API_PROVIDER: '{provider}'. "
-            "Supported values are 'OPENAI' or 'AZURE'." # Update if VLLM is added
-        )
+    match provider:
+        case "AZURE":
+            config = _get_azure_config()
+        case "OPENAI":
+            config = _get_openai_config()
+        # case "VLLM": # Illustrative for future extension
+        #     config = _get_vllm_config()
+        case _:
+            raise ValueError(
+                f"Invalid CHAT_API_PROVIDER: '{provider}'. "
+                "Supported values are 'OPENAI' or 'AZURE'." # Update if VLLM is added
+            )
 
     client_class = config["client_class"]
     client = client_class(**config["client_config"])
