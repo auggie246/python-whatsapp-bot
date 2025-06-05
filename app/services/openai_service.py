@@ -35,7 +35,7 @@ from typing import Dict, List, Union
 
 from dotenv import load_dotenv
 from openai import OpenAI, AzureOpenAI # Import both
-import functools
+from ..decorators.service_decorators import require_env_vars
 
 load_dotenv()
 
@@ -46,20 +46,6 @@ _client: Union[OpenAI, AzureOpenAI] # Type hint for the client object
 _chat_model_or_deployment_id: str
 _embedding_model_or_deployment_id: str
 
-def require_env_vars(provider_name: str, required_vars: List[str]):
-    """Decorator to check for required environment variables for a given provider."""
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            missing_vars = [var for var in required_vars if not os.getenv(var)]
-            if missing_vars:
-                raise RuntimeError(
-                    f"For CHAT_API_PROVIDER='{provider_name}', the following environment "
-                    f"variables must be set: {', '.join(missing_vars)}"
-                )
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
 
 @require_env_vars(provider_name="AZURE", required_vars=[
     "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_DEPLOYMENT_NAME"
