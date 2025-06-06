@@ -3,6 +3,7 @@ import json
 import logging
 import requests
 from flask import current_app
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,14 @@ class WhatsAppAdapter:
         
         self.base_url = f"https://graph.facebook.com/{self.api_version}/{self.phone_number_id}/messages"
         logger.info(f"WhatsAppAdapter initialized for API v{self.api_version}, PhoneID: {self.phone_number_id}")
+
+    def _format_outgoing_text(self, text: str) -> str:
+        """Formats text for WhatsApp (e.g., markdown bold, bracket removal)."""
+        # Remove custom brackets like 【.*?】
+        text = re.sub(r"\【.*?\】", "", text).strip()
+        # Convert markdown bold **text** to WhatsApp bold *text*
+        text = re.sub(r"\*\*(.*?)\*\*", r"*\1*", text)
+        return text
 
     def _log_http_response(self, response: requests.Response) -> None:
         """Logs details of an HTTP response."""
@@ -67,13 +76,14 @@ class WhatsAppAdapter:
             return False
 
         formatted_recipient_id = f"+{recipient_wa_id}"
-        payload = self._get_text_message_payload(formatted_recipient_id, text)
+        processed_text = self._format_outgoing_text(text)
+        payload = self._get_text_message_payload(formatted_recipient_id, processed_text)
         headers = {
             "Content-type": "application/json",
             "Authorization": f"Bearer {self.access_token}",
         }
 
-        logger.info(f"Sending message to {formatted_recipient_id}: {text[:50]}...") # Log snippet
+        logger.info(f"Sending message to {formatted_recipient_id}: {processed_text[:50]}...") # Log snippet
         try:
             response = requests.post(self.base_url, data=payload, headers=headers, timeout=10)
             self._log_http_response(response) # Log all responses
