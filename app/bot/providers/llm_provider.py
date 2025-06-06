@@ -103,7 +103,14 @@ class LLMProvider:
             Optional[Dict[str, str]]: A dictionary with "url" and "mime_type"
                                        if successful, None otherwise.
         """
-        url = f"https://graph.facebook.com/v{current_app.config.get('VERSION', 'v19.0')}/{media_id}" # Use configured version
+        version_str = current_app.config.get('VERSION', 'v19.0')
+        # Ensure 'v' is not duplicated if already present in version_str
+        if version_str.startswith('v'):
+            base_api_url = f"https://graph.facebook.com/{version_str}"
+        else:
+            base_api_url = f"https://graph.facebook.com/v{version_str}"
+        
+        url = f"{base_api_url}/{media_id}"
         headers = {"Authorization": f"Bearer {current_app.config['ACCESS_TOKEN']}"}
         try:
             response = requests.get(url, headers=headers, timeout=10)
