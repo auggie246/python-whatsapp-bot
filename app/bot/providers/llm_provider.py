@@ -69,6 +69,23 @@ class LLMProvider:
             "embedding_model_id": embedding_model_name,
         }
 
+    @require_env_vars(provider_name="VLLM", required_vars=["VLLM_API_BASE", "VLLM_MODEL_NAME"])
+    def _get_vllm_config_internal(self) -> Dict[str, Any]:
+        """Retrieves vLLM specific configurations. Internal use for initialization."""
+        api_base = os.getenv("VLLM_API_BASE")
+        model_name = os.getenv("VLLM_MODEL_NAME")
+        api_key = os.getenv("VLLM_API_KEY", "EMPTY")  # Default to "EMPTY" as per vLLM docs
+        embedding_model_name = os.getenv("VLLM_EMBEDDING_MODEL_NAME", model_name)
+        return {
+            "client_config": {
+                "base_url": api_base,
+                "api_key": api_key,
+            },
+            "client_class": OpenAI,  # vLLM is OpenAI-compatible
+            "chat_model_id": model_name,
+            "embedding_model_id": embedding_model_name,
+        }
+
     def _initialize_llm_client(self):
         """Initializes the API client and model IDs based on CHAT_API_PROVIDER."""
         provider = os.getenv("CHAT_API_PROVIDER", "OPENAI").upper()
@@ -78,11 +95,12 @@ class LLMProvider:
             config_data = self._get_azure_config_internal()
         elif provider == "OPENAI":
             config_data = self._get_openai_config_internal()
-        # Add other providers like VLLM here if needed in the future
+        elif provider == "VLLM":
+            config_data = self._get_vllm_config_internal()
         else:
             raise ValueError(
                 f"Invalid CHAT_API_PROVIDER: '{provider}'. "
-                "Supported values are 'OPENAI' or 'AZURE'."
+                "Supported values are 'OPENAI', 'AZURE', or 'VLLM'."
             )
         
         if not config_data: # Should be caught by decorator or above, but as safeguard
