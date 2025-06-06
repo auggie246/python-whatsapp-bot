@@ -7,7 +7,6 @@ multimodal), and embeddings. It also includes helper methods for interacting
 with the WhatsApp Media API to retrieve image information and content.
 """
 import os
-import base64
 import logging
 import requests
 from typing import List, Dict, Any, Union, Optional
