@@ -14,7 +14,7 @@ from typing import List, Dict, Any, Union, Optional
 
 from flask import current_app
 from openai import OpenAI, AzureOpenAI
-from app.decorators.service_decorators import require_env_vars
+from app.bot.decorators.service_decorators import require_env_vars
 
 logger = logging.getLogger(__name__)
 
