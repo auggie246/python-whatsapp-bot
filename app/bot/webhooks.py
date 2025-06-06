@@ -4,7 +4,7 @@ import logging
 from flask import Blueprint, current_app, jsonify, request
 
 from .decorators.security import signature_required
-from app.bot.utils import (
+from .utils import (
     is_valid_whatsapp_message,
     process_whatsapp_message,
 )
