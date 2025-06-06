@@ -157,7 +157,7 @@ The application follows the Flask Factory Pattern, with bot-specific logic organ
         - `whatsapp_prompt_builder.py`: Defines `WhatsAppPromptBuilder`, responsible for constructing prompts (text and multimodal) for the LLM, including system messages and history.
     - `providers/`: Package for external service providers.
         - `__init__.py`: Makes `providers` a Python package.
-        - `llm_provider.py`: Defines `LLMProvider`, which handles all interactions with the LLM (OpenAI, Azure) and the Meta Media API (for downloading images).
+        - `llm_provider.py`: Defines `LLMProvider`, which handles all interactions with the LLM (OpenAI, Azure, VLLM) and the Meta Media API (for downloading images).
 
 ### Main Files (Root Directory)
 - **`run.py`**: The entry point to run the Flask application.
@@ -189,7 +189,7 @@ The bot's operation revolves around a modular, class-based architecture:
         *   Uses `WhatsAppAdapter` (`send_text_message`) to send the LLM's (textual) response back to the user.
 
 4.  **LLM and Media Interaction (`app/bot/providers/llm_provider.py` - `LLMProvider`)**:
-    *   Initializes the underlying LLM client (OpenAI, Azure) based on `CHAT_API_PROVIDER` and other environment variables.
+    *   Initializes the underlying LLM client (OpenAI, Azure, VLLM) based on `CHAT_API_PROVIDER` and other environment variables.
     *   Provides methods for:
         *   Fetching media information (`get_media_info`) and content (`download_media_content`) from the Meta Media API.
         *   Getting chat completions (`get_chat_completion`) from the LLM; this method handles both text-only and multimodal message lists.
