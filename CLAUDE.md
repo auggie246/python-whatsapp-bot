@@ -136,19 +136,28 @@ Claude Code will directly apply proposed changes and modifications using the ava
 This project is a WhatsApp bot built with Python and Flask, using the Meta Cloud API.
 
 ### Project Structure Overview (`app/` directory)
-The application follows the Flask Factory Pattern.
+The application follows the Flask Factory Pattern, with bot-specific logic organized into the `app/bot/` package.
 
-- **`app/__init__.py`**: Initializes the Flask app using the `create_app` factory function. This allows for creating multiple instances of the app (e.g., for testing).
-- **`app/config.py`**: Manages configurations and settings for the Flask application. Environment-specific variables and secrets are loaded and accessed here.
-- **`app/decorators/`**: Contains Python decorators. This directory is a package.
-    - `security.py`: Houses security-related decorators, such as `signature_required` for validating incoming WhatsApp webhook requests.
-    - `service_decorators.py`: Provides general-purpose decorators for services, such as `require_env_vars` for ensuring necessary environment variables are set.
-- **`app/services/`**: Contains services that interact with external APIs. This directory is a package.
-    - `openai_service.py`: Handles integration with a configurable chat API provider (e.g., public OpenAI, Azure OpenAI) for generating AI responses. Behavior is controlled by the `CHAT_API_PROVIDER` environment variable.
-    - `azure_openai_service.py`: (This file has been consolidated into `openai_service.py` and is now redundant).
-- **`app/utils/`**: Utility functions and helpers.
-    - `whatsapp_utils.py`: Contains utility functions for handling WhatsApp-related operations, including processing incoming messages and formatting responses.
-- **`app/views.py`**: Defines the main blueprint for the app, where API endpoints (routes) are located. This primarily handles the `/webhook` endpoint for receiving messages from WhatsApp.
+- **`app/__init__.py`**: Initializes the Flask app using the `create_app` factory function. Registers the bot's webhook blueprint.
+- **`app/config.py`**: Manages configurations and settings for the Flask application. Environment variables and secrets are loaded here.
+- **`app/bot/`**: Core package for all WhatsApp bot functionalities.
+    - `__init__.py`: Makes `bot` a Python package.
+    - `assistant.py`: Defines `ChatAssistant`, the central orchestrator for message processing, managing conversation history, and coordinating `LLMProvider`, `WhatsAppPromptBuilder`, and `WhatsAppAdapter`.
+    - `webhooks.py`: (Formerly `app/views.py`) Defines the Flask blueprint and handles incoming webhook requests from WhatsApp, delegating to `app/bot/utils.py`.
+    - `utils.py`: (Consolidated from the old `app/utils/whatsapp_utils.py`) Contains bot-specific utilities for validating and initially processing incoming WhatsApp messages before they are handled by `ChatAssistant`.
+    - `adapters/`: Package for platform-specific adapters.
+        - `__init__.py`: Makes `adapters` a Python package.
+        - `whatsapp_adapter.py`: Defines `WhatsAppAdapter`, responsible for formatting and sending outgoing messages via the WhatsApp Cloud API.
+    - `decorators/`: Package for bot-specific decorators.
+        - `__init__.py`: Makes `decorators` a Python package.
+        - `security.py`: Contains the `@signature_required` decorator for webhook signature validation.
+        - `service_decorators.py`: Contains the `@require_env_vars` decorator for environment variable checks (used by `LLMProvider`).
+    - `prompt_builder/`: Package for prompt construction logic.
+        - `__init__.py`: Makes `prompt_builder` a Python package.
+        - `whatsapp_prompt_builder.py`: Defines `WhatsAppPromptBuilder`, responsible for constructing prompts (text and multimodal) for the LLM, including system messages and history.
+    - `providers/`: Package for external service providers.
+        - `__init__.py`: Makes `providers` a Python package.
+        - `llm_provider.py`: Defines `LLMProvider`, which handles all interactions with the LLM (OpenAI, Azure) and the Meta Media API (for downloading images).
 
 ### Main Files (Root Directory)
 - **`run.py`**: The entry point to run the Flask application.
@@ -156,11 +165,48 @@ The application follows the Flask Factory Pattern.
 - **`pyproject.toml`**: Defines project metadata and dependencies.
 
 ### Key Functionality
-1.  **Webhook Handling**: The application receives WhatsApp messages via a webhook configured in the Meta Developer portal. The `/webhook` endpoint in `app/views.py` processes these incoming messages.
-2.  **Security**: Webhook requests are validated using a signature check implemented in `app/decorators/security.py`.
-3.  **Message Processing**: Incoming messages are processed by `whatsapp_utils.py`.
-4.  **AI Integration**: `openai_service.py` is used to connect to an AI model to generate responses. The specific provider (e.g., public OpenAI, Azure OpenAI) is determined by the `CHAT_API_PROVIDER` environment variable. The `generate_response()` function in `whatsapp_utils.py` typically calls this service.
-5.  **Configuration**: Application secrets (API keys, tokens, etc.) are managed via environment variables, loaded in `app/config.py`.
+The bot's operation revolves around a modular, class-based architecture:
+
+1.  **Webhook Handling (`app/bot/webhooks.py`)**:
+    *   Receives WhatsApp messages via a webhook configured in the Meta Developer portal.
+    *   The `/webhook` endpoint uses `@signature_required` (from `app/bot/decorators/security.py`) for request validation.
+    *   Valid requests are passed to `process_whatsapp_message` in `app/bot/utils.py`.
+
+2.  **Initial Message Processing (`app/bot/utils.py`)**:
+    *   `is_valid_whatsapp_message` validates the incoming payload structure.
+    *   `process_whatsapp_message` extracts essential details (sender WAID, name, message type, content) and instantiates `ChatAssistant`.
+    *   It then calls the appropriate handler on `ChatAssistant` (e.g., `handle_text_message` or `handle_image_message`).
+
+3.  **Core Logic Orchestration (`app/bot/assistant.py` - `ChatAssistant`)**:
+    *   Initializes instances of `LLMProvider`, `WhatsAppPromptBuilder`, and `WhatsAppAdapter`.
+    *   Manages conversation history for each user (`self.user_histories`).
+    *   For an incoming message:
+        *   Retrieves the current conversation history for the user.
+        *   If it's an image message, it first uses `LLMProvider`'s media functions (`get_media_info`, `download_media_content`) to get image bytes and create a data URL.
+        *   Uses `WhatsAppPromptBuilder` (`build_text_prompt` or `build_image_prompt`) to construct a detailed prompt payload for the LLM, including the system message, formatted history, and current user message content (text or multimodal image data).
+        *   Calls the appropriate method on `LLMProvider` (`get_chat_completion`) to get a response from the configured multimodal LLM.
+        *   Updates the conversation history with the user's message (or its representation) and the LLM's response.
+        *   Uses `WhatsAppAdapter` (`send_text_message`) to send the LLM's (textual) response back to the user.
+
+4.  **LLM and Media Interaction (`app/bot/providers/llm_provider.py` - `LLMProvider`)**:
+    *   Initializes the underlying LLM client (OpenAI, Azure) based on `CHAT_API_PROVIDER` and other environment variables.
+    *   Provides methods for:
+        *   Fetching media information (`get_media_info`) and content (`download_media_content`) from the Meta Media API.
+        *   Getting chat completions (`get_chat_completion`) from the LLM; this method handles both text-only and multimodal message lists.
+    *   Uses `@require_env_vars` (from `app/bot/decorators/service_decorators.py`) for validating necessary API configurations during initialization.
+
+5.  **Prompt Construction (`app/bot/prompt_builder/whatsapp_prompt_builder.py` - `WhatsAppPromptBuilder`)**:
+    *   Generates the structured `messages` list (prompt payload) required by the LLM.
+    *   Responsible for defining default system prompts (customizable per text/image context) and incorporating them.
+    *   Formats and includes conversation history.
+    *   Formats the current user message, including creating the correct structure for multimodal image inputs (text part + image_url part with base64 data).
+
+6.  **Message Sending (`app/bot/adapters/whatsapp_adapter.py` - `WhatsAppAdapter`)**:
+    *   Handles formatting of outgoing text messages for WhatsApp (e.g., markdown bold conversion, custom bracket removal via `_format_outgoing_text`).
+    *   Manages the HTTP API calls to the WhatsApp Cloud API to send messages, including URL construction, headers, and error handling.
+
+7.  **Configuration (`app/config.py`)**:
+    *   Loads and provides all necessary configurations (API keys, tokens, model names, API version, etc.) from environment variables using `python-dotenv`. It's where `load_dotenv()` is called.
 
 ### Development Workflow
 1.  Set up environment variables in a `.env` file (based on `example.env`).
